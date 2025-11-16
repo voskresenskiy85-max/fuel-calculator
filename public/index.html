@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Калькулятор цен на ДТ по регионам РФ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f5f7;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 30px auto;
+      padding: 20px 24px 32px;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 22px;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .field {
+      flex: 1 1 220px;
+      min-width: 220px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+      color: #555;
+    }
+    select, input {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 9px 18px;
+      border-radius: 8px;
+      border: none;
+      background: #0078ff;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    .status {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #888;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid #ececec;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    th {
+      background: #fafafa;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .best-row {
+      background: #e6f7ff;
+      font-weight: 600;
+    }
+    .muted {
+      color: #888;
+      font-size: 12px;
+    }
+    @media (max-width: 700px) {
+      .container {
+        margin: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Калькулятор цен на дизель по регионам РФ</h1>
+    <p class="muted">
+      Калькулятор работает по данным сервиса MultiGO: выберите <b>регион</b> (область/край/республика) и тип топлива —
+      система покажет бренды в регионе, отсортированные по цене. Лучшее предложение подсвечено.
+    </p>
+
+    <div class="row">
+      <div class="field">
+        <label for="regionSelect">Регион (область / край / республика)</label>
+        <select id="regionSelect">
+          <option value="">Загрузка списка регионов...</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="fuelTypeSelect">Тип топлива</label>
+        <select id="fuelTypeSelect">
+          <option value="ДТ">ДТ — среднее по всем видам</option>
+          <option value="Дт">Дт — обычное</option>
+          <option value="Дт+">Дт+ — брендированное</option>
+          <option value="Дт-">Дт- — несезонное / СМТ</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="networkTypeSelect">Тип сетей</label>
+        <select id="networkTypeSelect">
+          <option value="ALL">Все АЗС</option>
+          <option value="ВИНК">Только ВИНК</option>
+          <option value="Независимые">Только независимые</option>
+        </select>
+      </div>
+      <div class="field" style="align-self:flex-end;">
+        <button id="calculateBtn" disabled>Показать лучшие цены</button>
+        <div class="status" id="statusText"></div>
+      </div>
+    </div>
+
+    <div id="resultInfo" class="muted"></div>
+
+    <div style="max-height: 420px; overflow:auto; margin-top: 10px;">
+      <table id="resultTable" style="display:none;">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Бренд</th>
+            <th>Регион</th>
+            <th>Тип сетей</th>
+            <th>Цена, ₽/л</th>
+            <th>ДТ</th>
+            <th>Дт</th>
+            <th>Дт+</th>
+            <th>Дт-</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = '/api/regions';
+
+    let allRows = [];
+    let regionsList = [];
+
+    const regionSelect = document.getElementById('regionSelect');
+    const fuelTypeSelect = document.getElementById('fuelTypeSelect');
+    const networkTypeSelect = document.getElementById('networkTypeSelect');
+    const calculateBtn = document.getElementById('calculateBtn');
+    const statusText = document.getElementById('statusText');
+    const resultInfo = document.getElementById('resultInfo');
+    const resultTable = document.getElementById('resultTable');
+    const resultBody = document.getElementById('resultBody');
+
+    async function loadData() {
+      statusText.textContent = 'Загружаем данные MultiGO...';
+      try {
+        const resp = await fetch(API_URL);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+
+        if (!Array.isArray(data) || !data.length) {
+          statusText.textContent = 'Данные не получены или структура изменилась.';
+          return;
+        }
+
+        allRows = data;
+
+        const regionSet = new Set();
+        allRows.forEach(r => {
+          if (r.region) regionSet.add(r.region);
+        });
+        regionsList = Array.from(regionSet).sort((a, b) => a.localeCompare(b, 'ru'));
+
+        regionSelect.innerHTML = '<option value="">Выберите регион...</option>';
+        regionsList.forEach(region => {
+          const opt = document.createElement('option');
+          opt.value = region;
+          opt.textContent = region;
+          regionSelect.appendChild(opt);
+        });
+
+        calculateBtn.disabled = false;
+        statusText.textContent = `Данные загружены: ${allRows.length} записей.`;
+      } catch (e) {
+        console.error(e);
+        statusText.textContent = 'Ошибка загрузки данных: ' + e.message;
+      }
+    }
+
+    function getNetworkTypeLabel(brand) {
+      if (brand === 'ВИНК') return 'ВИНК (вертикально интегрированные)';
+      if (brand === 'Независимые') return 'Независимые АЗС';
+      return 'Отдельный бренд';
+    }
+
+    function calculate() {
+      const region = regionSelect.value;
+      const fuelType = fuelTypeSelect.value;
+      const networkType = networkTypeSelect.value;
+
+      if (!region) {
+        alert('Выберите регион');
+        return;
+      }
+
+      const field = fuelType;
+
+      let filtered = allRows.filter(r => r.region === region);
+
+      if (networkType === 'ВИНК') {
+        filtered = filtered.filter(r => r.brand === 'ВИНК');
+      } else if (networkType === 'Независимые') {
+        filtered = filtered.filter(r => r.brand === 'Независимые');
+      }
+
+      filtered = filtered.filter(r => r[field] != null && r[field] > 0);
+
+      if (!filtered.length) {
+        resultTable.style.display = 'none';
+        resultInfo.textContent = 'Для выбранных параметров данных нет.';
+        return;
+      }
+
+      filtered.sort((a, b) => (a[field] || 0) - (b[field] || 0));
+
+      const bestPrice = filtered[0][field];
+
+      resultBody.innerHTML = '';
+      filtered.forEach((row, idx) => {
+        const tr = document.createElement('tr');
+        if (row[field] === bestPrice) {
+          tr.classList.add('best-row');
+        }
+
+        const cells = [
+          idx + 1,
+          row.brand || '(без бренда)',
+          row.region || '',
+          getNetworkTypeLabel(row.brand),
+          row[field] != null ? row[field].toFixed(2) : '',
+          row['ДТ'] != null ? row['ДТ'].toFixed(2) : '',
+          row['Дт'] != null ? row['Дт'].toFixed(2) : '',
+          row['Дт+'] != null ? row['Дт+'].toFixed(2) : '',
+          row['Дт-'] != null ? row['Дт-'].toFixed(2) : ''
+        ];
+
+        cells.forEach(val => {
+          const td = document.createElement('td');
+          td.textContent = val;
+          tr.appendChild(td);
+        });
+
+        resultBody.appendChild(tr);
+      });
+
+      resultTable.style.display = 'table';
+      resultInfo.innerHTML = `
+        Лучшее предложение для <b>${region}</b>, тип топлива <b>${fuelType}</b> —
+        цена <b>${bestPrice.toFixed(2)} ₽/л</b>.
+        Выше — полный список брендов, отсортированный по цене.
+      `;
+    }
+
+    calculateBtn.addEventListener('click', calculate);
+
+    loadData();
+  </script>
+</body>
+</html>
