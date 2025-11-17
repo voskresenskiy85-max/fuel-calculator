@@ -20,7 +20,11 @@ app.use(cors());
 // Прокси к MultiGO: делаем POST с пустым телом {}
 app.get('/api/regions', async (req, res) => {
   try {
-    const resp = await fetch(`${BASE_URL}/get/avg/by/regions`);
+    const resp = await fetch(`${BASE_URL}/get/avg/by/regions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
 
     if (!resp.ok) {
       const txt = await resp.text();
